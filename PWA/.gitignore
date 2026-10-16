@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/wwwroot/
+**/test-results/
+**/playwright-report/
+*.tsbuildinfo
+*.db
+.env
+.env.*
+!.env.example
+server/appsettings.*.json
+!server/appsettings.Example.json

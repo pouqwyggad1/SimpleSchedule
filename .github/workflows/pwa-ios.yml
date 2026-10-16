@@ -1,0 +1,46 @@
+name: PWA iPhone
+on:
+  push:
+    branches: [pwa-ios]
+    paths: ['PWA/**', 'Fixtures/ISTU/**', '.github/workflows/pwa-ios.yml']
+  pull_request:
+    paths: ['PWA/**', 'Fixtures/ISTU/**', '.github/workflows/pwa-ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: PWA/client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: PWA/client/package-lock.json
+      - run: npm ci --no-fund
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pwa-browser-failure
+          path: PWA/client/test-results
+          retention-days: 7
+  server:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore PWA/server/SimpleSchedule.Pwa.csproj --locked-mode
+      - run: dotnet build PWA/server/SimpleSchedule.Pwa.csproj -c Release --no-restore
+      - run: dotnet run --project PWA/server.tests/SimpleSchedule.Pwa.Tests.csproj -c Release

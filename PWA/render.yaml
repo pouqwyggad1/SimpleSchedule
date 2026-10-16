@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: simpleschedule-pwa
+    runtime: docker
+    plan: free
+    branch: pwa-ios
+    rootDir: PWA
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Supabase__Url
+        sync: false
+      - key: Supabase__PublishableKey
+        sync: false
+      - key: Supabase__ServiceRoleKey
+        sync: false
+      - key: Session__EncryptionKey
+        sync: false
+      - key: Jobs__Secret
+        sync: false
+      - key: PublicOrigin
+        sync: false
