@@ -18,9 +18,10 @@ public sealed record RefreshReply(List<SourceLesson> Lessons, List<string> Cover
 public sealed record ApiUser(string Id, string Email);
 public sealed record TokenSet(string AccessToken, string RefreshToken, long ExpiresAt, ApiUser User);
 
-public sealed class ApiException(int status, string message) : Exception(message)
+public sealed class ApiException(int status, string message, int? retryAfterSeconds = null) : Exception(message)
 {
     public int Status { get; } = status;
+    public int? RetryAfterSeconds { get; } = retryAfterSeconds;
 }
 
 public static class Validation

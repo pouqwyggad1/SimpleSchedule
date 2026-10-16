@@ -81,12 +81,51 @@ end $$;
 set local role service_role;
 do $$
 declare job jsonb; nextjob jsonb; result jsonb; token uuid:='cccccccc-cccc-cccc-cccc-cccccccccccc';
+  state_before jsonb; revision_before bigint; success_before timestamptz; prefs jsonb; operation jsonb;
 begin
   job:=public.pwa_job_claim(); nextjob:=public.pwa_job_claim();
   if job is null or nextjob is not null then raise exception 'Durable job lease overlap'; end if;
   perform public.pwa_job_complete((job->>'userId')::uuid,(job->>'lease')::uuid,'478229','[]',null);
   if public.pwa_job_claim() is not null then raise exception 'Job interval not advanced'; end if;
   if not exists(select 1 from public.pwa_schedule_jobs where last_success is not null) then raise exception 'Success not committed'; end if;
+  select records,revision into state_before,revision_before from public.pwa_state where user_id=(job->>'userId')::uuid;
+  select last_success into success_before from public.pwa_schedule_jobs where user_id=(job->>'userId')::uuid;
+  update public.pwa_schedule_jobs set next_run=now() where user_id=(job->>'userId')::uuid;
+  job:=public.pwa_job_claim();
+  operation:='[{"operationId":"00000000-0000-0000-0000-000000000017","entityId":"should-not-appear","kind":"task","baseVersion":0,"base":null,"data":{"title":"Do not publish after failure","date":"2026-10-13","note":"","groupId":null,"completed":false}}]';
+  perform public.pwa_job_complete((job->>'userId')::uuid,(job->>'lease')::uuid,'478229',operation,'Source unavailable');
+  if not exists(select 1 from public.pwa_schedule_jobs where user_id=(job->>'userId')::uuid and
+    next_run=now()+interval '15 minutes' and last_error='Source unavailable' and last_success=success_before and lease_id is null and lease_until is null)
+    then raise exception 'Failed automatic import did not preserve last success and schedule retry in 15 minutes'; end if;
+  if exists(select 1 from public.pwa_state where user_id=(job->>'userId')::uuid and (records<>state_before or revision<>revision_before))
+    then raise exception 'Failed automatic import published changes'; end if;
+  if public.pwa_job_claim() is not null then raise exception 'Failed job ignored retry delay'; end if;
+  update public.pwa_schedule_jobs set next_run=now() where user_id=(job->>'userId')::uuid;
+  job:=public.pwa_job_claim();
+  prefs:=state_before->'preferences';
+  operation:=jsonb_build_array(jsonb_build_object('operationId','00000000-0000-0000-0000-000000000018','entityId','preferences','kind','preferences',
+    'baseVersion',(prefs->>'version')::bigint,'base',prefs->'data','data',(prefs->'data')||'{"groupId":"478240"}'::jsonb));
+  perform public.pwa_apply((job->>'userId')::uuid,operation);
+  select records,revision into state_before,revision_before from public.pwa_state where user_id=(job->>'userId')::uuid;
+  perform public.pwa_job_complete((job->>'userId')::uuid,(job->>'lease')::uuid,'478229',
+    '[{"operationId":"00000000-0000-0000-0000-000000000017","entityId":"should-not-appear","kind":"task","baseVersion":0,"base":null,"data":{"title":"Stale group must not publish","date":"2026-10-13","note":"","groupId":null,"completed":false}}]',null);
+  if not exists(select 1 from public.pwa_schedule_jobs where user_id=(job->>'userId')::uuid and next_run<=now() and lease_id is null and lease_until is null)
+    then raise exception 'Changing automatic group during import lost the replacement job'; end if;
+  if exists(select 1 from public.pwa_state where user_id=(job->>'userId')::uuid and (records<>state_before or revision<>revision_before))
+    then raise exception 'Stale automatic group published changes'; end if;
+  nextjob:=public.pwa_job_claim();
+  if nextjob is null or not exists(select 1 from jsonb_array_elements(nextjob->'records') r where r->>'id'='preferences' and r->'data'->>'groupId'='478240')
+    then raise exception 'Replacement automatic job did not use the new group'; end if;
+  perform public.pwa_job_complete((job->>'userId')::uuid,(job->>'lease')::uuid,'478229','[]',null);
+  if public.pwa_job_claim() is not null then raise exception 'Stale worker released replacement lease'; end if;
+  job:=nextjob;
+  prefs:=state_before->'preferences';
+  operation:=jsonb_build_array(jsonb_build_object('operationId','00000000-0000-0000-0000-000000000019','entityId','preferences','kind','preferences',
+    'baseVersion',(prefs->>'version')::bigint,'base',prefs->'data','data',(prefs->'data')||'{"refreshMode":"manual"}'::jsonb));
+  perform public.pwa_apply((job->>'userId')::uuid,operation);
+  perform public.pwa_job_complete((job->>'userId')::uuid,(job->>'lease')::uuid,'478240','[]',null);
+  if exists(select 1 from public.pwa_schedule_jobs where user_id=(job->>'userId')::uuid) or public.pwa_job_claim() is not null
+    then raise exception 'Manual mode retained or revived an automatic job'; end if;
   perform public.pwa_session_create(repeat('a',64),'encrypted-only',now()+interval '30 days');
   result:=public.pwa_session_claim(repeat('a',64),token);
   if result->>'payload'<>'encrypted-only' then raise exception 'Session roundtrip'; end if;

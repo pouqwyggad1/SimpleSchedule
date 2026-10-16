@@ -8,6 +8,7 @@ namespace SimpleSchedule.Pwa;
 
 public sealed class SupabaseGateway
 {
+    public const int EmailResendIntervalSeconds = 60;
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly HttpClient http;
     private readonly string? url;
@@ -46,15 +47,33 @@ public sealed class SupabaseGateway
                 HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity => 400,
                 _ => 502
             };
+            string? code = null;
+            if (status == 429)
+            {
+                // Translate only the provider's public error code. Never relay its raw
+                // response, which can include account details or internal diagnostics.
+                try
+                {
+                    var error = await response.Content.ReadFromJsonAsync<JsonObject>(Json, ct);
+                    if (error?["code"] is JsonValue value && value.TryGetValue<string>(out var providerCode)) code = providerCode;
+                }
+                catch (JsonException) { }
+            }
             string message = status switch
             {
                 401 => "Сессия истекла. Войдите по почте снова.",
+                429 when code == "over_email_send_rate_limit" => "Почтовый сервис временно ограничил отправку кодов. Повторите попытку позже.",
                 429 => "Слишком много запросов. Подождите немного и повторите.",
                 400 when path.Contains("/auth/", StringComparison.Ordinal) => "Код неверен или истёк. Запросите новый код и проверьте настройки почты.",
                 400 => "Изменения не приняты сервером. Обновите приложение и повторите синхронизацию.",
                 _ => "Облачный сервис временно недоступен. Локальные изменения сохранены."
             };
-            throw new ApiException(status, message);
+            var retryAfter = response.Headers.RetryAfter;
+            double? delay = retryAfter?.Delta?.TotalSeconds ?? (retryAfter?.Date - DateTimeOffset.UtcNow)?.TotalSeconds;
+            int? retryAfterSeconds = status == 429
+                ? delay is { } seconds ? (int)Math.Clamp(Math.Ceiling(seconds), 1, 86_400) : EmailResendIntervalSeconds
+                : null;
+            throw new ApiException(status, message, retryAfterSeconds);
         }
         if (response.StatusCode == HttpStatusCode.NoContent) return null;
         await using var stream = await response.Content.ReadAsStreamAsync(ct);

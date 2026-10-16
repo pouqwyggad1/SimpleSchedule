@@ -26,8 +26,17 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduleWorker>())
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = 429;
-    o.OnRejected = async (context, ct) => await context.HttpContext.Response.WriteAsJsonAsync(new { error = "Слишком много запросов. Подождите немного." }, ct);
-    foreach (var (name, permits, minutes) in new[] { ("auth-send", 4, 10), ("auth-verify", 12, 10), ("refresh", 3, 1), ("lists", 30, 1), ("sync", 120, 1) })
+    o.OnRejected = async (context, ct) =>
+    {
+        int? retryAfterSeconds = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var delay)
+            ? Math.Max(1, (int)Math.Ceiling(delay.TotalSeconds)) : null;
+        if (retryAfterSeconds is { } seconds)
+            context.HttpContext.Response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await context.HttpContext.Response.WriteAsJsonAsync(new { error = "Слишком много запросов. Подождите немного.", retryAfterSeconds }, ct);
+    };
+    // Auth email throttling belongs to Supabase: a local RemoteIpAddress bucket behind
+    // Render can count independent users together and block delivery after four attempts.
+    foreach (var (name, permits, minutes) in new[] { ("auth-verify", 12, 10), ("refresh", 3, 1), ("lists", 30, 1), ("sync", 120, 1) })
         o.AddPolicy(name, ctx => RateLimitPartition.GetFixedWindowLimiter(ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = permits, Window = TimeSpan.FromMinutes(minutes), QueueLimit = 0, AutoReplenishment = true }));
 });
@@ -60,7 +69,13 @@ app.Use(async (context, next) =>
         }
         await next();
     }
-    catch (ApiException error) { context.Response.StatusCode = error.Status; await context.Response.WriteAsJsonAsync(new { error = error.Message }); }
+    catch (ApiException error)
+    {
+        context.Response.StatusCode = error.Status;
+        if (error.RetryAfterSeconds is { } seconds)
+            context.Response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await context.Response.WriteAsJsonAsync(new { error = error.Message, retryAfterSeconds = error.RetryAfterSeconds });
+    }
     catch (Exception error) when (error is ArgumentException or InvalidDataException or System.Text.Json.JsonException or BadHttpRequestException)
     { context.Response.StatusCode = 400; await context.Response.WriteAsJsonAsync(new { error = "Некорректный запрос или изменилась разметка расписания. Сохранённые данные доступны." }); }
     catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
@@ -83,8 +98,9 @@ app.MapGet("/api/auth/session", async (HttpContext ctx, SessionService sessions,
 });
 app.MapPost("/api/auth/request-code", async (EmailRequest body, SessionService sessions, SupabaseGateway gateway, CancellationToken ct) =>
 {
-    sessions.RequireConfigured(); await gateway.RequestCode(Validation.Email(body.Email), ct); return Results.Ok(new { sent = true });
-}).RequireRateLimiting("auth-send");
+    sessions.RequireConfigured(); await gateway.RequestCode(Validation.Email(body.Email), ct);
+    return Results.Ok(new { sent = true, retryAfterSeconds = SupabaseGateway.EmailResendIntervalSeconds });
+});
 app.MapPost("/api/auth/verify-code", async (VerifyRequest body, HttpContext ctx, SessionService sessions, SupabaseGateway gateway, CancellationToken ct) =>
 {
     sessions.RequireConfigured();

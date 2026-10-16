@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatDate, subjectKey, type Group, type Lesson, type Preferences, type PlannerStore } from '../core';
-import { apiRequest } from './api';
+import { ApiError, apiRequest } from './api';
+import { DEFAULT_AUTH_RETRY_SECONDS, normalizeAuthEmail, readAuthRetryAt, rememberAuthCooldown } from './authCooldown';
 import { Icon, Modal, Toggle } from './UI';
 
 export interface Session { configured: boolean; user: { id: string; email: string } | null }
@@ -12,6 +13,26 @@ const TABS: { id: Tab; title: string; icon: 'cloud' | 'book' | 'sun' | 'bell' | 
 export function Settings({ store, preferences, appearance, onAppearance, session, localAccountEmail, onSignedIn, onSignOut, onMergeGuest, lessons, groups, subgroups, selectedDate, pending, onClose, onError, onToast, initialTab = 'account' }: { store: PlannerStore; preferences: Preferences; appearance: Appearance; onAppearance: (appearance: Appearance) => void; session: Session; localAccountEmail?: string; onMergeGuest: () => Promise<void>; onSignedIn: (session: Session) => Promise<void>; onSignOut: () => Promise<void>; lessons: Lesson[]; groups: Group[]; subgroups: string[]; selectedDate: string; pending: number; onClose: () => void; onError: (error: unknown) => void; onToast: (text: string) => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [email, setEmail] = useState(''); const [code, setCode] = useState(''); const [codeSent, setCodeSent] = useState(false); const [busy, setBusy] = useState(false); const [authError, setAuthError] = useState('');
+  const authBusyRef = useRef(false);
+  const [authRetryAt, setAuthRetryAt] = useState(0);
+  const [authClock, setAuthClock] = useState(Date.now);
+  const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - authClock) / 1000));
+  const waitingForAuthRetry = authRetrySeconds > 0;
+  useEffect(() => {
+    if (!waitingForAuthRetry) return;
+    const timer = window.setInterval(() => setAuthClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [waitingForAuthRetry]);
+  useEffect(() => {
+    const refresh = () => { setAuthClock(Date.now()); setAuthRetryAt(previous => Math.max(previous, readAuthRetryAt(email))); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [email]);
+  function changeAuthEmail(value: string) {
+    setEmail(value); setCodeSent(false); setCode(''); setAuthError('');
+    setAuthClock(Date.now()); setAuthRetryAt(readAuthRetryAt(value));
+  }
   const [institutes, setInstitutes] = useState<CatalogOption[]>(() => cachedOptions('institutes'));
   const [universityGroups, setUniversityGroups] = useState<CatalogOption[]>(() => cachedOptions(`groups-${preferences.instituteId ?? ''}`));
   const [catalogBusy, setCatalogBusy] = useState(false);
@@ -23,8 +44,25 @@ export function Settings({ store, preferences, appearance, onAppearance, session
   }
   async function loadInstitutes() { setCatalogBusy(true); try { const result = await apiRequest<{ options: CatalogOption[] }>('/api/university/institutes'); setInstitutes(result.options); cacheOptions('institutes', result.options); } catch (error) { onError(error); } finally { setCatalogBusy(false); } }
   async function authRequest(verify: boolean) {
-    setBusy(true); setAuthError('');
-    try { if (verify) { const next = await apiRequest<Session>('/api/auth/verify-code', { email: email.trim(), code: code.trim() }); await onSignedIn(next); onToast('Вы вошли в аккаунт'); } else { await apiRequest('/api/auth/request-code', { email: email.trim() }); setCodeSent(true); } } catch (error) { setAuthError(error instanceof Error ? error.message : 'Не удалось войти'); } finally { setBusy(false); }
+    const authEmail = normalizeAuthEmail(email);
+    if (authBusyRef.current || (!verify && Math.max(authRetryAt, readAuthRetryAt(authEmail)) > Date.now())) return;
+    authBusyRef.current = true; setBusy(true); setAuthError('');
+    try {
+      if (verify) {
+        const next = await apiRequest<Session>('/api/auth/verify-code', { email: authEmail, code: code.trim() });
+        await onSignedIn(next); onToast('Вы вошли в аккаунт');
+      } else {
+        const result = await apiRequest<{ retryAfterSeconds?: number }>('/api/auth/request-code', { email: authEmail });
+        setAuthRetryAt(rememberAuthCooldown(authEmail, result.retryAfterSeconds ?? DEFAULT_AUTH_RETRY_SECONDS));
+        setAuthClock(Date.now()); setCodeSent(true);
+      }
+    } catch (error) {
+      if (!verify && error instanceof ApiError && error.status === 429) {
+        setAuthRetryAt(rememberAuthCooldown(authEmail, error.retryAfterSeconds ?? DEFAULT_AUTH_RETRY_SECONDS));
+        setAuthClock(Date.now());
+      }
+      setAuthError(error instanceof Error ? error.message : 'Не удалось войти');
+    } finally { authBusyRef.current = false; setBusy(false); }
   }
   const subjects = [...new Map(lessons.map(lesson => [subjectKey(lesson.subject), lesson.subject])).entries()].sort((a, b) => a[1].localeCompare(b[1], 'ru'));
   return <Modal title="Настройки" description="SimpleSchedule — в вашем ритме" wide onClose={onClose} footer={<button className="button primary" onClick={onClose}>Готово</button>}>
@@ -33,9 +71,12 @@ export function Settings({ store, preferences, appearance, onAppearance, session
         {session.user ? <><div className="account-card"><span className="avatar">{session.user.email.slice(0, 1).toUpperCase()}</span><div><strong>{session.user.email}</strong><small>Синхронизация включена</small></div><Icon name="check"/></div><p className="field-help">{pending ? `В очереди на отправку: ${pending}.` : 'Локальные изменения отправляются автоматически при доступной сети.'} Данные macOS и Windows пока не подключены к этому облаку.</p><button className="button" onClick={() => void onMergeGuest().catch(onError)}>Объединить гостевые данные</button><button className="button" onClick={async () => { setBusy(true); try { await onSignOut(); } catch (error) { onError(error); } finally { setBusy(false); } }} disabled={busy}><Icon name="logout" size={18}/> Выйти из аккаунта</button></> : <>
           <div className="local-badge"><span className="status-dot"/>{localAccountEmail ? `Локальная копия: ${localAccountEmail}` : 'Сейчас вы работаете локально'}</div><p className="field-help">{localAccountEmail ? 'Данные аккаунта доступны на устройстве. Для синхронизации подтвердите вход с той же почтой.' : 'Без входа данные остаются в этом браузере. После входа вы сами выберете, объединять ли их с аккаунтом.'}</p>
           {!session.configured && <div className="notice"><Icon name="warning"/><p>Сервер входа ещё не настроен. Локальные функции уже доступны. Для входа владелец сервера должен подключить Supabase и доставку почты.</p></div>}
-          <form className="auth-form" onSubmit={e => { e.preventDefault(); void authRequest(codeSent); }}><label className="field">Ваша почта<input type="email" autoComplete="email" value={email} required onChange={e => { setEmail(e.target.value); setCodeSent(false); setCode(''); }} placeholder="name@example.com" disabled={busy}/></label>
-            {codeSent && <><p className="field-help">Отправили код на {email}. Проверьте также папку «Спам».</p><label className="field">Код из письма<input className="otp-input" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" minLength={6} maxLength={6} required autoFocus placeholder="000000"/></label></>}
-            {authError && <p role="alert" className="inline-error">{authError}</p>}<button className="button primary" type="submit" disabled={busy || !session.configured || !email.trim() || (codeSent && code.length < 6)}><Icon name="mail" size={18}/>{busy ? 'Подождите…' : codeSent ? 'Войти' : 'Получить код'}</button>{codeSent && <button className="text-button" type="button" onClick={() => void authRequest(false)} disabled={busy}>Отправить код ещё раз</button>}
+          <form className="auth-form" onSubmit={e => { e.preventDefault(); void authRequest(codeSent); }}><label className="field">Ваша почта<input type="email" autoComplete="email" value={email} required onChange={e => changeAuthEmail(e.target.value)} placeholder="name@example.com" disabled={busy}/></label>
+            {codeSent && <><p className="field-help">Введите код из письма для {email}. Проверьте также папку «Спам».</p><label className="field">Код из письма<input className="otp-input" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" minLength={6} maxLength={6} required autoFocus placeholder="000000"/></label></>}
+            {authError && <p role="alert" className="inline-error">{authError}</p>}
+            {waitingForAuthRetry && <p className="field-help" role="status">Повторная отправка кода через {authRetrySeconds} с.</p>}
+            <button className="button primary" type="submit" disabled={busy || !session.configured || !email.trim() || (codeSent ? code.length < 6 : waitingForAuthRetry)}><Icon name="mail" size={18}/>{busy ? 'Подождите…' : codeSent ? 'Войти' : 'Получить код'}</button>
+            {codeSent ? <button className="text-button" type="button" onClick={() => void authRequest(false)} disabled={busy || waitingForAuthRetry}>Отправить код ещё раз</button> : <button className="text-button" type="button" onClick={() => { setCodeSent(true); setAuthError(''); }} disabled={busy || !session.configured || !email.trim()}>У меня уже есть код</button>}
           </form></>}
       </section><div className="privacy-note"><Icon name="shield"/><p>Почта нужна только для входа. Дела и заметки не отправляются письмами. Реклама и аналитика отсутствуют.</p></div></>}
       {tab === 'university' && <><section className="settings-section"><div className="section-heading"><Icon name="book"/><h3>Расписание ИРНИТУ</h3></div><p className="section-description">Выберите институт и учебную группу. Списки загружаются с сайта вуза по вашему действию и сохраняются для работы без сети.</p>

@@ -15,6 +15,8 @@ void Reject(string name, Action action)
 }
 IstuRegression.Run(Expect);
 await SessionRegression.Run(Expect);
+await ScheduleWorkerRegression.Run(Expect);
+await AuthRegression.Run(Expect);
 Reject("empty email rejected", () => Validation.Email(null));
 Reject("invalid email rejected", () => Validation.Email("wrong"));
 Expect(Validation.Email(" a@example.com ") == "a@example.com", "email trim");
