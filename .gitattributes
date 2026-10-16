@@ -1,0 +1,2 @@
+# Preserve the exact public HTML responses used by parser regression tests.
+Fixtures/ISTU/*.html -whitespace

@@ -1,0 +1,21 @@
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+.build/
+
+# Local deliverables and private working notes stay outside the public source tree.
+Artifacts/
+WORK_IN_PROGRESS.md
+Docs/Reports/
+Docs/Проверки.md
+
+# Developer credentials and local environment files.
+.env
+.env.*
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile

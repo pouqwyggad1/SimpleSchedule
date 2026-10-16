@@ -1,0 +1,16 @@
+/* Official ScheduleClass.css?v=52, fetched 16 October 2026.
+Source: https://www.istu.edu/Sys/Module/ScheduleClass/v2/view/card/css/ScheduleClass.css?v=52
+Only the selectors defining inactive alternatives are kept. */
+
+.sch-list-week-odd .week-even .schcls-item {
+	opacity: 0.5;
+}
+
+.sch-list-week-even .week-odd .schcls-item, .card-unactive.schcls-item {
+	color: var(--page-grey-kit-fg3-2) !important;
+	--page-link-color: var(--page-grey-kit-fg3-2) !important;
+}
+
+.sch-list-week-even .week-odd .schcls-item-distype, .card-unactive.schcls-item .schcls-item-distype {
+	--class-type-color: var(--page-grey-kit-fg3-2) !important;
+}
