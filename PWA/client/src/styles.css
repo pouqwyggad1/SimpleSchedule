@@ -243,6 +243,8 @@ h1 { font-size: 2.125rem; font-weight: 700; letter-spacing: -.035em; line-height
 .section-description { font-size: 0.875rem; line-height: 1.7; color: var(--soft-text); }
 .settings-section .button { font-size: .9375rem; align-self: flex-start; min-height: 44px; padding: 10px 16px; }
 .settings-section .text-button { align-self: flex-start; min-height: 44px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.settings-actions .button { max-width: 100%; min-width: 0; white-space: normal; text-align: center; }
 .settings-section input, .settings-section select { font-size: 0.875rem; }
 .inline-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
 .horizontal-field { flex-direction: row; align-items: center; justify-content: space-between; gap: 20px; padding-top: 16px; border-top: 1px solid var(--line); }

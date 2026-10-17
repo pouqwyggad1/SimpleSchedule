@@ -28,7 +28,7 @@ export function PushSettings({ userId, onError, onToast }: { userId?: string; on
   const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
   useEffect(() => {
     let active = true;
-    if (!supported || (ios && !standalone)) return;
+    if (!userId || !supported || (ios && !standalone)) return;
     void (async () => {
       try {
         const next = await apiRequest<PushConfig>('/api/push/config');
@@ -86,7 +86,7 @@ export function PushSettings({ userId, onError, onToast }: { userId?: string; on
     : registered ? 'Это устройство подключено. Включите общий переключатель ниже. Разрешение и подключение настраиваются на каждом устройстве отдельно.'
     : 'Подключите это устройство и разрешите уведомления в системном окне.';
   return <section className="settings-section"><div className="section-heading"><Icon name="bell"/><h3>На этом устройстве</h3></div>
-    <p className="field-help" role="status">{help}</p>{error && <p className="form-error" role="alert">{error}</p>}
+    <p className="field-help" role="status">{help}</p>{error && <p className="inline-error" role="alert">{error}</p>}
     {userId && supported && (!ios || standalone) && <div className="settings-actions">
       <button className="button" disabled={busy || !config?.configured || !registration || (!registered && permission === 'denied')} onClick={() => void (registered ? disable() : enable())}>{busy ? 'Подождите…' : registered ? 'Отключить это устройство' : 'Подключить уведомления'}</button>
       {registered && <button className="button" disabled={busy || permission === 'denied'} onClick={async () => { setBusy(true); try { await pushApi('/api/push/test', userId, { deviceId: pushDeviceId() }); onToast('Push-служба приняла проверочное уведомление'); } catch (failure) { onError(failure); } finally { setBusy(false); } }}>Проверить уведомление</button>}
