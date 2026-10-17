@@ -11,8 +11,8 @@ test('системная тема меняется на лету; ручной �
   await expect(page.locator('html')).not.toHaveAttribute('data-theme');
   await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(242, 242, 247)');
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
-  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(0, 0, 0)');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#000000');
+  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(24, 24, 26)');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#18181A');
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Настройки', exact: true });
   await dialog.getByRole('button', { name: 'Оформление', exact: true }).click();

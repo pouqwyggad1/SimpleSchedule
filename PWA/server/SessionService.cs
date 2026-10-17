@@ -101,6 +101,8 @@ public sealed class SessionService
             throw new ApiException(409, "Аккаунт изменён в другой вкладке. Откройте приложение заново; локальные правки сохранены.");
     }
 
+    public static string? SessionId(HttpContext context) => context.Request.Cookies.TryGetValue(Cookie, out var id) ? Hash(id) : null;
+
     private static CookieOptions Options(HttpContext context, DateTimeOffset? expires = null) => new()
     {
         HttpOnly = true, Secure = context.Request.IsHttps || !context.RequestServices.GetRequiredService<IWebHostEnvironment>().IsDevelopment(),

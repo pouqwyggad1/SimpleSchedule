@@ -7,10 +7,24 @@
         "resolved": "1.13.1",
         "contentHash": "wkKKu0oltLJQRBf862+O0yqBAvo+RVisLXFFTlThWCuw1gjATkna1ZKQBcwHUyJUUZhkPUvyxFJcyqXSAvNkag=="
       },
+      "Lib.Net.Http.EncryptedContentEncoding": {
+        "type": "Transitive",
+        "resolved": "2.1.1",
+        "contentHash": "n+CuGyBCZ9zLT3p39sab1bSL2FRCoXHXUM/T7jXwZlibOE+mASOqXcKD9LzNjH+VZTdA0mn02EdBww06DzD9IA=="
+      },
+      "Lib.Net.Http.WebPush": {
+        "type": "Transitive",
+        "resolved": "3.3.1",
+        "contentHash": "5ByiHRcY3lF/4LA7ZbgzBEUmX6oYlPTS1NzXEom3uvT7wFHeZ8Q9DOQcPG6awFqS8yGUuyTvxrHyBzTOwe8Fpg==",
+        "dependencies": {
+          "Lib.Net.Http.EncryptedContentEncoding": "2.1.1"
+        }
+      },
       "simpleschedule.pwa": {
         "type": "Project",
         "dependencies": {
-          "HtmlAgilityPack": "[1.13.1, )"
+          "HtmlAgilityPack": "[1.13.1, )",
+          "Lib.Net.Http.WebPush": "[3.3.1, )"
         }
       }
     }

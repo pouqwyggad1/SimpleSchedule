@@ -16,5 +16,5 @@ export function applyAppearance(appearance: Appearance) {
   // Zero remains an explicit opaque fallback for Safari accessibility settings.
   root.style.setProperty('--glass-opacity', String(.42 - appearance.transparency / 95 * .24));
   const dark = appearance.theme === 'dark' || (appearance.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#000000' : '#F2F2F7');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#18181A' : '#F2F2F7');
 }

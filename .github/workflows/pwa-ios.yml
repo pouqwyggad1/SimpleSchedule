@@ -36,6 +36,21 @@ jobs:
           retention-days: 7
   server:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: pwa-local-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: pwa-local-ci-only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -44,3 +59,12 @@ jobs:
       - run: dotnet restore PWA/server/SimpleSchedule.Pwa.csproj --locked-mode
       - run: dotnet build PWA/server/SimpleSchedule.Pwa.csproj -c Release --no-restore
       - run: dotnet run --project PWA/server.tests/SimpleSchedule.Pwa.Tests.csproj -c Release
+      - name: SQL ownership, sync and push queue regressions
+        run: |
+          psql -v ON_ERROR_STOP=1 -f PWA/server.tests/mock-auth.sql
+          psql -v ON_ERROR_STOP=1 -f PWA/supabase/schema.sql
+          psql -v ON_ERROR_STOP=1 -f PWA/supabase/patches/source-cancellation.sql
+          psql -v ON_ERROR_STOP=1 -f PWA/supabase/patches/worker-group-switch.sql
+          psql -v ON_ERROR_STOP=1 -f PWA/supabase/migrations/20261017082928_web_push_notifications.sql
+          psql -v ON_ERROR_STOP=1 -f PWA/server.tests/sync-regression.sql
+          psql -v ON_ERROR_STOP=1 -f PWA/server.tests/push-regression.sql

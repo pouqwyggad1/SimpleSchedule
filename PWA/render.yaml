@@ -22,5 +22,9 @@ services:
         sync: false
       - key: Jobs__Secret
         sync: false
+      - key: Push__PublicKey
+        sync: false
+      - key: Push__PrivateKey
+        sync: false
       - key: PublicOrigin
         sync: false

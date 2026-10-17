@@ -30,10 +30,10 @@ export default function App() {
   const conflicts = useLiveQuery(() => store.listConflicts(), [store], []);
   const pending = useLiveQuery(() => store.pendingCount(), [store], 0);
   const [session, setSession] = useState<Session>({ configured: false, user: null });
-  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedDate, setSelectedDate] = useState(() => notificationLocation().date ?? today());
   const [todayDate, setTodayDate] = useState(today);
   const [view, setView] = useState<View>('month');
-  const [mode, setMode] = useState<Mode>('tasks');
+  const [mode, setMode] = useState<Mode>(() => notificationLocation().schedule ? 'schedule' : 'tasks');
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
   const [online, setOnline] = useState(navigator.onLine);
@@ -70,6 +70,8 @@ export default function App() {
   useEffect(() => { if (groupFilter && groupFilter !== UNGROUPED && !groups.some(group => group.id === groupFilter)) setGroupFilter(null); }, [groups, groupFilter]);
   useEffect(() => { const listener = () => setUpdateAvailable(true); window.addEventListener('pwa-update-available', listener); return () => window.removeEventListener('pwa-update-available', listener); }, []);
 
+  useEffect(() => { const open = (event: MessageEvent) => { if (event.data?.type !== 'OPEN_SCHEDULE' || typeof event.data.url !== 'string') return; const next = notificationLocation(event.data.url); if (next.schedule) { setMode('schedule'); if (next.date) setSelectedDate(next.date); } }; navigator.serviceWorker?.addEventListener('message', open); return () => navigator.serviceWorker?.removeEventListener('message', open); }, []);
+
   const visibleLessons = useMemo(() => sortLessons(lessons.filter(lesson => lessonVisible(lesson, preferences))), [lessons, preferences]);
   const tasksByDate = useMemo(() => groupByDate(sortTasks(tasks)), [tasks]);
   const lessonsByDate = useMemo(() => groupByDate(visibleLessons), [visibleLessons]);
@@ -86,7 +88,7 @@ export default function App() {
   function addItem(date = selectedDate) { mode === 'schedule' ? setLessonEditor({ date }) : setTaskEditor({ date }); }
   async function prepareGuestMerge(accountStore = store) { if (accountStore.namespace === 'guest') return; await createSyncEngine(accountStore).sync(); const guest = createStore('guest'); const [guestTasks, guestGroups, guestLessons] = await Promise.all([guest.listTasks(), guest.listGroups(), guest.listLessons()]); if (guestTasks.length + guestGroups.length + guestLessons.length > 0) setMergePrompt(true); else notify('Гостевых данных для объединения нет'); }
   async function signedIn(next: Session) { if (!next.user) throw new Error('Сервер не подтвердил вход. Попробуйте запросить новый код.'); const normalized = { configured: true, user: next.user }; setSession(normalized); setNamespace(next.user.id); setLocalAccount(next.user); saveLocalAccount(next.user); try { await prepareGuestMerge(createStore(next.user.id)); } catch { notify('Вход выполнен. Объединение гостевых данных будет доступно после успешной синхронизации.', true); } }
-  async function signOut() { const count = await store.pendingCount(); if (count && !window.confirm(`На этом устройстве есть неотправленные изменения (${count}). Они сохранятся отдельно в локальной базе этого аккаунта. Выйти?`)) return; await apiRequest('/api/auth/sign-out', {}); setSession(previous => ({ ...previous, user: null })); setNamespace('guest'); setLocalAccount(null); saveLocalAccount(null); setSyncError(''); notify('Вы вышли. Открыты локальные данные гостя.'); }
+  async function signOut() { const count = await store.pendingCount(); if (count && !window.confirm(`На этом устройстве есть неотправленные изменения (${count}). Они сохранятся отдельно в локальной базе этого аккаунта. Выйти?`)) return; await apiRequest('/api/auth/sign-out', { deviceId: localStorage.getItem('SimpleSchedule.pushDevice') }); setSession(previous => ({ ...previous, user: null })); setNamespace('guest'); setLocalAccount(null); saveLocalAccount(null); setSyncError(''); notify('Вы вышли. Открыты локальные данные гостя.'); }
   async function refreshSchedule() {
     if (!preferences.groupId) { setSettings('university'); notify('Сначала выберите институт и учебную группу'); return; }
     if (!online) { notify('Для обновления расписания нужен интернет', true); return; }
@@ -103,7 +105,7 @@ export default function App() {
   const addButton = (date = selectedDate, compact = false) => <button className={`button ${compact ? 'quiet-add' : ''}`} onClick={() => addItem(date)}><Icon name="plus" size={18}/>{mode === 'schedule' ? 'Добавить занятие' : 'Добавить дело'}</button>;
   const taskProps = { groups, onEdit: (task: Task) => setTaskEditor({ item: task, date: task.date }), onToggle: (task: Task) => void store.setTaskCompleted(task.id, !task.completed).catch(onError), onDelete: (task: Task) => setConfirmation({ title: 'Удалить дело?', message: `«${task.title}» будет удалено.`, action: () => store.deleteTask(task.id) }) };
   const lessonProps = { onEdit: (lesson: Lesson) => setLessonEditor({ item: lesson, date: lesson.date }), onDelete: (lesson: Lesson) => setConfirmation({ title: 'Удалить занятие?', message: `«${lesson.subject}» будет удалено из вашего расписания.${lesson.sourceId ? ' При обновлении оно не появится снова.' : ''}`, action: () => store.deleteLesson(lesson.id) }) };
-  const dayActions = mode === 'schedule' ? <button className={`icon-button subtle ${dayMuted ? 'quiet-active' : ''}`} onClick={() => void toggleDayMuted().catch(onError)} aria-label={dayMuted ? 'Включить будущие уведомления на этот день' : 'Отключить будущие уведомления на этот день'} title={dayMuted ? 'Тихий день — включить уведомления' : 'Настроить тихий день'}><Icon name="bell" size={18}/>{dayMuted && <span className="mute-slash"/>}</button> : null;
+  const dayActions = mode === 'schedule' ? <button className={`icon-button subtle ${dayMuted ? 'quiet-active' : ''}`} onClick={() => void toggleDayMuted().catch(onError)} aria-label={dayMuted ? 'Включить уведомления на этот день' : 'Отключить уведомления на этот день'} title={dayMuted ? 'Тихий день — включить уведомления' : 'Настроить тихий день'}><Icon name="bell" size={18}/>{dayMuted && <span className="mute-slash"/>}</button> : null;
 
   return <FeedbackContext.Provider value={toast}><div className="app-shell">
     <header className="app-header">
@@ -166,3 +168,7 @@ function readableRecord(record: Record<string, unknown> | null) { if (!record) r
 
 function readLocalAccount(): { id: string; email: string } | null { try { const value = JSON.parse(localStorage.getItem('SimpleSchedule.lastAccount') ?? 'null'); return value && typeof value.id === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(value.id) && typeof value.email === 'string' ? { id: value.id, email: value.email } : null; } catch { return null; } }
 function saveLocalAccount(value: { id: string; email: string } | null) { try { if (value) localStorage.setItem('SimpleSchedule.lastAccount', JSON.stringify(value)); else localStorage.removeItem('SimpleSchedule.lastAccount'); } catch { /* The local database remains usable in this session. */ } }
+
+function notificationLocation(value = location.href): { date?: string; schedule: boolean } {
+  try { const url = new URL(value, location.origin); if (url.origin !== location.origin || url.pathname !== "/") return { schedule: false }; const date = url.searchParams.get("date"); if (date && date >= '0002-01-01' && date <= '9998-12-31' && /^\d{4}-\d{2}-\d{2}$/.test(date)) { dateFromCivil(date); return { date, schedule: true }; } return { schedule: url.searchParams.get("mode") === "schedule" }; } catch { return { schedule: false }; }
+}

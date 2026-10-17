@@ -135,14 +135,14 @@ test('импорт всех подгрупп и мгновенная фильт�
   await expect(page.getByText('На этот день занятий нет', { exact: true })).toBeVisible();
 });
 
-test('тема и настройки будущих уведомлений сохраняются, формы помещаются в экран', async ({ page }) => {
+test('тема и настройки уведомлений сохраняются, формы помещаются в экран', async ({ page }) => {
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Настройки', exact: true });
   await settings.getByRole('button', { name: 'Оформление', exact: true }).click();
   await settings.getByRole('radio', { name: 'Тёмная', exact: true }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await settings.getByRole('button', { name: 'Уведомления', exact: true }).click();
-  await expect(settings.getByText('Будущая функция.', { exact: true })).toBeVisible();
+  await expect(settings.getByRole('heading', { name: 'На этом устройстве', exact: true })).toBeVisible();
   await settings.getByRole('switch', { name: 'Включить уведомления', exact: true }).click();
   await expect(settings.getByRole('switch', { name: 'Включить уведомления', exact: true })).toBeChecked();
   await settings.getByLabel('За сколько минут напоминать').fill('10');
