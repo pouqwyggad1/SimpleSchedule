@@ -30,6 +30,7 @@ export default defineConfig({
   })],
   server: { port: 5173, strictPort: true, proxy: { '/api': 'http://127.0.0.1:5080' } },
   preview: { port: 4173, strictPort: true },
-  build: { target: 'safari17', sourcemap: false },
+  // Preserve both standard and WebKit glass filters in the production CSS.
+  build: { target: 'safari17', cssTarget: ['safari17', 'chrome111'], sourcemap: false },
   test: { environment: 'node', include: ['src/**/*.test.ts', 'tests/**/*.unit.test.ts'] },
 });

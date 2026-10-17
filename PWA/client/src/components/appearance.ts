@@ -12,8 +12,9 @@ export function applyAppearance(appearance: Appearance) {
   if (appearance.theme === 'system') root.removeAttribute('data-theme');
   else root.dataset.theme = appearance.theme;
   root.dataset.reduceTransparency = String(appearance.transparency === 0);
-  // Keep regular glass legible at either end; content surfaces stay opaque.
-  root.style.setProperty('--glass-opacity', String(.9 - appearance.transparency / 95 * .22));
+  // Shared clear controls; contrast comes from the semantic foreground, not a blue fill.
+  // Zero remains an explicit opaque fallback for Safari accessibility settings.
+  root.style.setProperty('--glass-opacity', String(.42 - appearance.transparency / 95 * .24));
   const dark = appearance.theme === 'dark' || (appearance.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#000000' : '#F2F2F7');
 }
