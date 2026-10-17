@@ -11,7 +11,7 @@ export default defineConfig({
       id: '/', name: 'SimpleSchedule', short_name: 'SimpleSchedule',
       description: 'Ваши дела и расписание университета в одном календаре.',
       lang: 'ru', start_url: '/', scope: '/', display: 'standalone',
-      background_color: '#eef3fa', theme_color: '#eef3fa',
+      background_color: '#F2F2F7', theme_color: '#F2F2F7',
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

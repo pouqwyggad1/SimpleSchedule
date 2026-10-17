@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 export const FeedbackContext = createContext<{ text: string; error?: boolean } | null>(null);
 
@@ -23,15 +23,49 @@ const paths: Record<IconName, ReactNode> = {
 };
 export function Icon({ name, size = 20, className = '' }: { name: IconName; size?: number; className?: string }) { return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>; }
 
-export function Modal({ title, description, children, footer, onClose, wide = false }: { title: string; description?: string; children: ReactNode; footer?: ReactNode; onClose: () => void; wide?: boolean }) {
+type ModalContent = ReactNode | ((dismiss: () => void) => ReactNode);
+let openModalCount = 0;
+let previousRootOverflow = '';
+
+export function Modal({ title, description, children, footer, onClose, wide = false, dismissDisabled = false }: { title: string; description?: string; children: ModalContent; footer?: ModalContent; onClose: () => void; wide?: boolean; dismissDisabled?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const descriptionId = useId();
   const feedback = useContext(FeedbackContext);
-  useEffect(() => { const dialog = ref.current; dialog?.showModal(); return () => { dialog?.close(); }; }, []);
-  return <dialog ref={ref} className={`modal ${wide ? 'modal-wide' : ''}`} onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) { const bounds = event.currentTarget.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose(); } }} aria-labelledby={titleId}>
-    <header className="modal-header"><div><h2 id={titleId}>{title}</h2>{description && <p>{description}</p>}</div><button className="icon-button subtle" aria-label="Закрыть окно" onClick={onClose}><Icon name="close"/></button></header>
-    <div className="modal-body">{feedback?.error && <div className="modal-feedback" role="alert"><Icon name="warning" size={18}/><span>{feedback.text}</span></div>}{children}</div>
-    {footer && <footer className="modal-footer">{footer}</footer>}
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  function dismiss() {
+    if (closeTimer.current) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { closeRef.current(); return; }
+    setClosing(true);
+    closeTimer.current = setTimeout(() => closeRef.current(), 220);
+  }
+  function requestDismiss() { if (!dismissDisabled) dismiss(); }
+  useEffect(() => {
+    const dialog = ref.current;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (openModalCount++ === 0) { previousRootOverflow = document.documentElement.style.overflow; document.documentElement.style.overflow = 'hidden'; }
+    dialog?.showModal();
+    return () => {
+      if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+      dialog?.close();
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      if (--openModalCount === 0) document.documentElement.style.overflow = previousRootOverflow;
+    };
+  }, []);
+  return <dialog ref={ref} className={`modal ${wide ? 'modal-wide' : ''}`} data-state={closing ? 'closing' : 'open'} onKeyDown={event => {
+    if (event.key !== 'Tab') return;
+    const targets = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')].filter(element => element.getClientRects().length > 0);
+    const first = targets[0], last = targets[targets.length - 1];
+    if (!first) { event.preventDefault(); return; }
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }} onCancel={event => { event.preventDefault(); requestDismiss(); }} onClick={event => { if (event.target === event.currentTarget) { const bounds = event.currentTarget.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) requestDismiss(); } }} aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined}>
+    <header className="modal-header"><div><h2 id={titleId}>{title}</h2>{description && <p id={descriptionId}>{description}</p>}</div><button className="icon-button subtle" aria-label="Закрыть окно" onClick={requestDismiss} disabled={dismissDisabled}><Icon name="close"/></button></header>
+    <div className="modal-body">{feedback?.error && <div className="modal-feedback" role="alert"><Icon name="warning" size={18}/><span>{feedback.text}</span></div>}{typeof children === 'function' ? children(dismiss) : children}</div>
+    {footer && <footer className="modal-footer">{typeof footer === 'function' ? footer(dismiss) : footer}</footer>}
   </dialog>;
 }
 export function EmptyState({ schedule = false, title, detail, action }: { schedule?: boolean; title?: string; detail?: string; action?: ReactNode }) {

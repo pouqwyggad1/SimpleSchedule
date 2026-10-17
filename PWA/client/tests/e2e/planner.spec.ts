@@ -48,6 +48,7 @@ test('дело, группа из формы, выполнение, редакт
   const group = page.getByRole('dialog', { name: 'Новая группа', exact: true });
   await group.getByLabel('Название группы').fill('Учёба');
   await group.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(group).not.toBeVisible();
   await task.getByLabel('Группа', { exact: true }).selectOption({ label: 'Учёба' });
   await task.getByLabel(/Заметка/).fill('Сохранённая личная заметка');
   await task.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -138,7 +139,7 @@ test('тема и настройки будущих уведомлений со�
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Настройки', exact: true });
   await settings.getByRole('button', { name: 'Оформление', exact: true }).click();
-  await settings.getByLabel('Тема', { exact: true }).selectOption('dark');
+  await settings.getByRole('radio', { name: 'Тёмная', exact: true }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await settings.getByRole('button', { name: 'Уведомления', exact: true }).click();
   await expect(settings.getByText('Будущая функция.', { exact: true })).toBeVisible();
