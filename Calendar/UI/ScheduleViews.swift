@@ -8,6 +8,7 @@ struct ScheduleMonthGridView: View {
     var onEdit: (UniversityLesson) -> Void
     var onDelete: (UniversityLesson) -> Void
 
+    @Environment(CloudController.self) private var cloud
     @Environment(\.colorScheme) private var colorScheme
     private var math: CalendarMath { CalendarMath() }
     private let weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -73,6 +74,7 @@ struct ScheduleMonthGridView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu {
             Button("Добавить пару", systemImage: "plus") { onAdd(date) }
+            QuietDayAction(day: CivilDay(date: date))
             if !lessons.isEmpty {
                 Divider()
                 ForEach(lessons) { lesson in
@@ -94,6 +96,7 @@ struct ScheduleWeekView: View {
     var onEdit: (UniversityLesson) -> Void
     var onDelete: (UniversityLesson) -> Void
 
+    @Environment(CloudController.self) private var cloud
     @Environment(\.colorScheme) private var colorScheme
     private var math: CalendarMath { CalendarMath() }
 
@@ -136,6 +139,7 @@ struct ScheduleWeekView: View {
             .disabled(!math.isSupported(date))
             .accessibilityLabel("\(math.fullDate(date))\(isToday ? ", сегодня" : ""). \(UniversityLesson.lessonCountText(lessons.count))")
             .accessibilityAddTraits(selected ? .isSelected : [])
+            .contextMenu { QuietDayAction(day: CivilDay(date: date)) }
             Divider()
             ScrollView {
                 LazyVStack(spacing: 8) {
@@ -208,6 +212,7 @@ struct ScheduleDayListView: View {
                     .padding(.vertical, 4)
                     .background(.primary.opacity(0.06), in: Capsule())
             }
+            .contextMenu { QuietDayAction(day: CivilDay(date: date)) }
             if lessons.isEmpty {
                 ContentUnavailableView {
                     Label("На этот день пар нет", systemImage: "graduationcap")
@@ -245,6 +250,7 @@ private struct ScheduleLessonCard: View {
     var compact = false
     var onEdit: () -> Void
     var onDelete: () -> Void
+    @Environment(CloudController.self) private var cloud
     @Environment(\.colorScheme) private var colorScheme
 
     private var lessonBorder: Color {
@@ -269,6 +275,7 @@ private struct ScheduleLessonCard: View {
                     .foregroundStyle(.tint)
                 Spacer(minLength: 0)
                 Menu {
+                    QuietSubjectAction(subject: lesson.subject)
                     Button("Редактировать", systemImage: "pencil", action: onEdit)
                     Button("Удалить пару…", systemImage: "trash", role: .destructive, action: onDelete)
                 } label: {
@@ -318,6 +325,7 @@ private struct ScheduleLessonCard: View {
                 .allowsHitTesting(false)
         }
         .contextMenu {
+            QuietSubjectAction(subject: lesson.subject)
             Button("Редактировать", systemImage: "pencil", action: onEdit)
             Button("Удалить пару…", systemImage: "trash", role: .destructive, action: onDelete)
         }
@@ -361,7 +369,7 @@ struct LessonEditorView: View {
         return calendar
     }
     private var startMinute: Int { minute(of: startTime) }
-    private var endMinute: Int { minute(of: endTime) }
+    private var endMinute: Int { minute(of: endTime) == 0 && startMinute > 0 ? 1440 : minute(of: endTime) }
     private var timeIsValid: Bool { !automaticEndExceedsDay && startMinute < endMinute }
     private var endTimeBinding: Binding<Date> {
         Binding(get: { endTime }, set: { endTime = $0; automaticEndExceedsDay = false })
@@ -461,7 +469,7 @@ struct LessonEditorView: View {
         .onAppear { subjectIsFocused = true }
         .onChange(of: startTime) { _, value in
             let end = minute(of: value) + durationMinutes
-            guard end < 1440 else { automaticEndExceedsDay = true; return }
+            guard end <= 1440 else { automaticEndExceedsDay = true; return }
             endTime = Date(timeIntervalSinceReferenceDate: Double(end * 60))
             automaticEndExceedsDay = false
         }
@@ -496,4 +504,19 @@ private func scheduleWeekendColor(_ scheme: ColorScheme) -> Color {
 private func scheduleCapitalized(_ text: String) -> String {
     guard let first = text.first else { return text }
     return first.uppercased() + text.dropFirst()
+}
+
+private struct QuietDayAction: View {
+    let day: CivilDay
+    @Environment(CloudController.self) private var cloud
+    var body: some View {
+        Button(cloud.preferences.mutedDates.contains(CloudMapping.date(day)) ? "Включить уведомления на этот день" : "Отключить уведомления на этот день", systemImage: "bell.slash") { cloud.toggleMutedDate(day) }
+    }
+}
+private struct QuietSubjectAction: View {
+    let subject: String
+    @Environment(CloudController.self) private var cloud
+    var body: some View {
+        Button(cloud.preferences.mutedSubjects.contains(PlannerPreferences.subjectKey(subject)) ? "Включить уведомления по дисциплине" : "Отключить уведомления по дисциплине", systemImage: "bell.slash") { cloud.toggleSubject(subject) }
+    }
 }

@@ -19,3 +19,10 @@ Docs/Проверки.md
 *.p8
 *.mobileprovision
 *.provisionprofile
+
+# Windows/.NET generated files
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo

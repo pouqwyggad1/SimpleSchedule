@@ -4,6 +4,8 @@ struct SettingsView: View {
     @Bindable var settings: AppSettings
     @Bindable var login: LoginItemManager
     @Bindable var importer: ISTUImportController
+    @Bindable var cloud: CloudController
+    var store: CalendarStore
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -20,7 +22,10 @@ struct SettingsView: View {
             Text("Настройки")
                 .font(.title2.bold())
             Form {
+                CloudAccountSection(cloud: cloud)
                 importSection
+                if let notifications = cloud.notifications { NativeNotificationSection(cloud: cloud, notifications: notifications, lessons: store.lessons) }
+                CloudBackupSection(cloud: cloud)
                 Section("Оформление") {
                     Picker("Тема", selection: $settings.theme) {
                         ForEach(AppTheme.allCases) { theme in
@@ -89,7 +94,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Label("Данные хранятся на этом Mac. Дела и сохраненное расписание доступны без интернета; сайт ИРНИТУ нужен только для загрузки списков и импорта по вашему действию.", systemImage: "lock.shield")
+                    Label("Дела и расписание доступны без интернета. Вход включает синхронизацию с вашим аккаунтом; автоматический импорт работает только при выбранном режиме. Данные не используются для аналитики.", systemImage: "lock.shield")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -215,6 +220,16 @@ struct SettingsView: View {
             Text("От 1 до 360 минут. Для новой пары окончание рассчитывается от начала; его можно изменить вручную.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Picker("Способ обновления", selection: $cloud.preferences.refreshMode) {
+                Text("Вручную").tag("manual"); Text("Автоматически").tag("auto")
+            }
+            if cloud.preferences.refreshMode == "auto" {
+                Picker("Интервал", selection: $cloud.preferences.refreshIntervalHours) {
+                    Text("Каждый час").tag(1); Text("Каждые 3 часа").tag(3); Text("Каждые 6 часов").tag(6)
+                }
+                Text("Включение разрешает фоновое обновление. После входа оно выполняется сервером; без входа — пока приложение запущено. Интернет нужен для обновления и синхронизации.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Text("Сохраненные списки доступны офлайн. Загрузка списка и импорт недели выполняются только по вашему действию. Выбор института загружает его группы; остальные настройки сохраняются автоматически.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

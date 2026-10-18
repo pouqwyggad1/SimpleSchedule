@@ -14,6 +14,8 @@ struct UniversityLesson: Codable, Identifiable, Equatable, Sendable {
     var kind: String = ""
     var subgroup: String? = nil
     var istuOrigin: ISTULessonOrigin? = nil
+    var sourceCancelled: Bool = false
+    var cloudID: String? = nil
 
     init(id: UUID = UUID(), subject: String, civilDay: CivilDay, startMinute: Int, endMinute: Int,
          homework: String, room: String, teacher: String, kind: String = "", subgroup: String? = nil,
@@ -24,7 +26,7 @@ struct UniversityLesson: Codable, Identifiable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, subject, civilDay, startMinute, endMinute, homework, room, teacher, kind, subgroup, istuOrigin
+        case id, subject, civilDay, startMinute, endMinute, homework, room, teacher, kind, subgroup, istuOrigin, sourceCancelled, cloudID
     }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -39,6 +41,8 @@ struct UniversityLesson: Codable, Identifiable, Equatable, Sendable {
         kind = try values.decodeIfPresent(String.self, forKey: .kind) ?? ""
         subgroup = try values.decodeIfPresent(String.self, forKey: .subgroup)
         istuOrigin = try values.decodeIfPresent(ISTULessonOrigin.self, forKey: .istuOrigin)
+        sourceCancelled = try values.decodeIfPresent(Bool.self, forKey: .sourceCancelled) ?? false
+        cloudID = try values.decodeIfPresent(String.self, forKey: .cloudID)
     }
 
     var date: Date {
@@ -46,7 +50,7 @@ struct UniversityLesson: Codable, Identifiable, Equatable, Sendable {
     }
     var isValid: Bool {
         !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && civilDay.isValid &&
-        (0..<1440).contains(startMinute) && (0..<1440).contains(endMinute) && startMinute < endMinute
+        (0..<1440).contains(startMinute) && (1...1440).contains(endMinute) && startMinute < endMinute
     }
     var timeRange: String { "\(Self.time(startMinute))–\(Self.time(endMinute))" }
     static func time(_ minute: Int) -> String { String(format: "%02d:%02d", minute / 60, minute % 60) }
@@ -99,6 +103,7 @@ struct ScheduleImportFilter: Equatable, Sendable {
     var subgroup: String?
 
     func includes(_ lesson: UniversityLesson) -> Bool {
+        guard !lesson.sourceCancelled else { return false }
         if let origin = lesson.istuOrigin, origin.groupID != groupID { return false }
         guard let selected = subgroup?.trimmingCharacters(in: .whitespacesAndNewlines), !selected.isEmpty,
               let lessonSubgroup = lesson.subgroup?.trimmingCharacters(in: .whitespacesAndNewlines), !lessonSubgroup.isEmpty else { return true }

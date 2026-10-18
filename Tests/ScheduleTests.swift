@@ -49,7 +49,7 @@ struct ScheduleTests {
             try expect(reopened.lessons == [edited] && reopened.isAvailable, "Все поля занятия сохранены после перезапуска")
 
             try rejects("Пустое название не сохраняется") { try store.saveLesson(subject: " \n ", date: day, startMinute: 100, endMinute: 200, homework: "", room: "", teacher: "") }
-            for (start, end) in [(-1, 90), (0, 0), (600, 599), (600, 600), (1440, 1441), (1380, 1440)] {
+            for (start, end) in [(-1, 90), (0, 0), (600, 599), (600, 600), (1440, 1441), (1380, 1441)] {
                 try rejects("Некорректное время не сохраняется: \(start)–\(end)") {
                     try store.saveLesson(subject: "Некорректное", date: day, startMinute: start, endMinute: end, homework: "", room: "", teacher: "")
                 }

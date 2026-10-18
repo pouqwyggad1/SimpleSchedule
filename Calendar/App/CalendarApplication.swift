@@ -1,9 +1,11 @@
 import AppKit
 import QuartzCore
 import SwiftUI
+import UserNotifications
 
 extension Notification.Name {
     static let calendarPanelWillShow = Notification.Name("CalendarPanelWillShow")
+    static let calendarNotificationDayRequested = Notification.Name("CalendarNotificationDayRequested")
     static let calendarSystemDayChanged = Notification.Name("CalendarSystemDayChanged")
 }
 
@@ -13,7 +15,7 @@ struct GoldenGateCalendarApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(settings: delegate.settings, login: delegate.login, importer: delegate.importer)
+            SettingsView(settings: delegate.settings, login: delegate.login, importer: delegate.importer, cloud: delegate.cloud, store: delegate.store)
                 .environment(\.locale, Locale(identifier: "ru_RU"))
                 .preferredColorScheme(delegate.settings.theme.preferredColorScheme)
                 .onAppear { delegate.login.refresh() }
@@ -46,16 +48,19 @@ final class CalendarApplicationDelegate: NSObject, NSApplicationDelegate, NSWind
     private var sharedDataObserver: NSObjectProtocol?
     private var pendingWidgetLink: WidgetDeepLink?
     private var lastKnownDay = Calendar.current.startOfDay(for: Date())
-    private let store = CalendarStore()
+    let store = CalendarStore()
     let settings = AppSettings()
     let login = LoginItemManager()
     let importer = ISTUImportController()
+    let cloud = CloudController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         configureStatusItem()
-        store.onCommit = { WidgetBridge.notifyDataChanged() }
+        store.onCommit = { [weak self] in WidgetBridge.notifyDataChanged(); self?.cloud.localDataChanged() }
         importer.attach(store: store)
+        cloud.attach(store: store, importer: importer)
+        cloud.notifications = NativeNotificationCoordinator(store: store, cloud: cloud)
         observeSystemChanges()
         login.attemptFirstLaunchRegistration()
         let defaults = UserDefaults.standard
@@ -150,7 +155,7 @@ final class CalendarApplicationDelegate: NSObject, NSApplicationDelegate, NSWind
         // Keep the same panel and editor state visible when the user changes Spaces.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.animationBehavior = .utilityWindow
-        let content = CalendarPanelView(store: store, settings: settings, login: login, importer: importer)
+        let content = CalendarPanelView(store: store, settings: settings, login: login, importer: importer, cloud: cloud)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         let hostingView = RoundedPanelHostingView(rootView: content)
         hostingView.wantsLayer = true
@@ -252,6 +257,14 @@ final class CalendarApplicationDelegate: NSObject, NSApplicationDelegate, NSWind
 
     private func observeSystemChanges() {
         let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: NativeNotificationCoordinator.openDay, object: nil, queue: .main) { [weak self] notification in
+            let day = notification.userInfo?["day"] as? CivilDay
+            Task { @MainActor [weak self] in
+                guard let self, let day else { return }
+                self.showPanel()
+                NotificationCenter.default.post(name: .calendarNotificationDayRequested, object: nil, userInfo: ["day": day])
+            }
+        })
         sharedDataObserver = DistributedNotificationCenter.default().addObserver(
             forName: .plannerSharedDataChanged, object: nil, queue: .main
         ) { [weak self] _ in
@@ -279,6 +292,7 @@ final class CalendarApplicationDelegate: NSObject, NSApplicationDelegate, NSWind
         workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkCurrentDay(force: true)
+                self?.cloud.notifications?.refresh()
                 self?.login.refresh()
             }
         })
@@ -286,6 +300,7 @@ final class CalendarApplicationDelegate: NSObject, NSApplicationDelegate, NSWind
             Task { @MainActor [weak self] in
                 self?.checkCurrentDay()
                 self?.store.reloadFromDisk()
+                self?.cloud.notifications?.refresh()
             }
         }
         if let dateTimer { RunLoop.main.add(dateTimer, forMode: .common) }
@@ -328,6 +343,7 @@ final class CalendarApplicationDelegate: NSObject, NSApplicationDelegate, NSWind
 
     func applicationWillTerminate(_ notification: Notification) {
         stopEventMonitors()
+        cloud.stop()
         dateTimer?.invalidate()
         observers.forEach(NotificationCenter.default.removeObserver)
         workspaceObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)

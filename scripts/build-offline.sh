@@ -2,7 +2,7 @@
 # Uses only installed local tools. Never starts an app or registers an extension.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD_DIR="$ROOT/build"
+BUILD_DIR="${CALENDAR_BUILD_DIR:-$ROOT/build}"
 APP="$BUILD_DIR/Calendar.app"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 DEPLOYMENT_TARGET=27.0
@@ -80,7 +80,7 @@ if $CHECK_FETCHER_ONLY; then
     /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion $DEPLOYMENT_TARGET" "$CHECK_APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c 'Set :PlannerAppGroupIdentifier ""' "$CHECK_APP/Contents/Info.plist"
     /usr/bin/codesign --force --sign - --options runtime \
-        --entitlements "$ROOT/Calendar/Resources/Calendar-Local.entitlements" "$CHECK_APP"
+        --entitlements "$ROOT/ScheduleFetcherXPC/Checks/FetchCheck.entitlements" "$CHECK_APP"
     echo "PASS: отдельный headless XPC diagnostic host собран и подписан; не запускался."
     echo "$CHECK_APP/Contents/MacOS/FetchCheck"
     exit 0
@@ -147,6 +147,7 @@ fi
 rm -rf "$APP/Contents/PlugIns" "$APP/Contents/Resources/Metadata.appintents" "$APP/Contents/Metadata.appintents"
 build_fetcher_service "$APP/Contents/XPCServices/ScheduleFetcher.xpc"
 cp "$ROOT/Calendar/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/Calendar/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable Calendar' "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier ru.local.GoldenGateCalendar' "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion $DEPLOYMENT_TARGET" "$APP/Contents/Info.plist"
@@ -155,5 +156,5 @@ cp "$ROOT/Calendar/Resources/Info.plist" "$APP/Contents/Info.plist"
     --entitlements "$ROOT/Calendar/Resources/Calendar-Local.entitlements" "$APP"
 "$ROOT/scripts/validate-offline.sh" "$APP"
 echo "Готово: $APP"
-echo "Локальная CLI-сборка без WidgetKit extension и App Groups; сеть разрешена только отдельной службе загрузки ИРНИТУ."
+echo "Локальная CLI-сборка без WidgetKit extension и App Groups; главное приложение поддерживает опциональное облако, отдельная служба загружает только ИРНИТУ."
 echo "Приложение не запускалось. При первом запуске macOS получит запрос на регистрацию автозапуска."

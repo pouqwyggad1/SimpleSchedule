@@ -63,6 +63,25 @@ final class CalendarStore {
         reloadFromDisk()
     }
 
+    var cloudDirectory: URL? { storage?.directory.appendingPathComponent("Cloud", isDirectory: true) }
+
+    func plannerSnapshot() throws -> NativePlannerSnapshot {
+        guard let storage else { throw DataStoreError.storageUnavailable("Локальное хранилище недоступно.") }
+        return try storage.withExclusiveAccess {
+            let document = try readSnapshot(in: storage).document
+            return NativePlannerSnapshot(tasks: document.tasks, groups: document.groups, lessons: document.lessons,
+                deletedISTULessonKeys: document.deletedISTULessonKeys)
+        }
+    }
+
+    /// Used only after a validated cloud projection or an explicit backup/account switch.
+    func replacePlanner(with snapshot: NativePlannerSnapshot) throws {
+        try commit { document in
+            document.tasks = snapshot.tasks; document.groups = snapshot.groups; document.lessons = snapshot.lessons
+            document.deletedISTULessonKeys = snapshot.deletedISTULessonKeys
+        }
+    }
+
     /// Failed refreshes retain the visible snapshot but mark it unavailable.
     /// A widget must check isAvailable before treating an empty array as valid.
     func reloadFromDisk() {
@@ -111,7 +130,7 @@ final class CalendarStore {
 
     func lessons(on date: Date) -> [UniversityLesson] {
         let day = CivilDay(date: date)
-        return lessons.filter { $0.civilDay == day && (importFilter?.includes($0) ?? true) }.sorted {
+        return lessons.filter { $0.civilDay == day && !$0.sourceCancelled && (importFilter?.includes($0) ?? true) }.sorted {
             if $0.startMinute != $1.startMinute { return $0.startMinute < $1.startMinute }
             if $0.endMinute != $1.endMinute { return $0.endMinute < $1.endMinute }
             return $0.id.uuidString < $1.id.uuidString
@@ -135,6 +154,8 @@ final class CalendarStore {
             if let id {
                 guard let index = document.lessons.firstIndex(where: { $0.id == id }) else { throw LessonValidationError.notFound }
                 lesson.istuOrigin = document.lessons[index].istuOrigin
+                lesson.sourceCancelled = document.lessons[index].sourceCancelled
+                lesson.cloudID = document.lessons[index].cloudID
                 document.lessons[index] = lesson
             } else { document.lessons.append(lesson) }
             return lesson
@@ -168,6 +189,7 @@ final class CalendarStore {
                 homework: "", room: item.room, teacher: item.teacher, kind: item.kind, subgroup: item.subgroup)
             guard lesson.isValid else { throw LessonValidationError.invalidTime }
             lesson.istuOrigin = ISTULessonOrigin(groupID: groupID, sourceID: item.sourceID, original: ISTULessonFields(lesson))
+            lesson.cloudID = "source:\(groupID):\(item.sourceID)"
             incoming.append(lesson)
         }
         guard Set(incoming.compactMap { $0.istuOrigin?.key }).count == incoming.count else {
@@ -177,30 +199,34 @@ final class CalendarStore {
             var result = ISTUImportResult()
             let remoteKeys = Set(incoming.compactMap { $0.istuOrigin?.key })
             let deleted = Set(document.deletedISTULessonKeys)
-            document.lessons.removeAll { existing in
+            for index in document.lessons.indices {
+                let existing = document.lessons[index]
                 guard let origin = existing.istuOrigin, origin.groupID == groupID,
-                      days.contains(WidgetDeepLink.dayString(origin.original.civilDay)), !remoteKeys.contains(origin.key) else { return false }
+                      days.contains(WidgetDeepLink.dayString(origin.original.civilDay)), !remoteKeys.contains(origin.key) else { continue }
                 if ISTULessonFields(existing) != origin.original || !existing.homework.isEmpty {
-                    result.preserved += 1; return false
+                    document.lessons[index].cloudID = existing.cloudID ?? "source:\(origin.groupID):\(origin.sourceID)"
+                    document.lessons[index].istuOrigin = nil
+                    document.lessons[index].sourceCancelled = false
+                    result.preserved += 1; continue
                 }
-                result.removed += 1; return true
+                if !existing.sourceCancelled { document.lessons[index].sourceCancelled = true; result.removed += 1 }
             }
             for remote in incoming {
                 guard let origin = remote.istuOrigin, !deleted.contains(origin.key) else { continue }
-                if let index = document.lessons.firstIndex(where: { $0.istuOrigin?.key == origin.key }),
-                   let previous = document.lessons[index].istuOrigin?.original {
+                if let index = document.lessons.firstIndex(where: { $0.istuOrigin?.key == origin.key || $0.cloudID == remote.cloudID }) {
+                    let previous = document.lessons[index].istuOrigin?.original
                     let current = document.lessons[index]
                     var merged = remote
                     merged.id = current.id
                     merged.homework = current.homework
-                    if current.subject != previous.subject { merged.subject = current.subject }
-                    if current.civilDay != previous.civilDay { merged.civilDay = current.civilDay }
-                    if current.startMinute != previous.startMinute { merged.startMinute = current.startMinute }
-                    if current.endMinute != previous.endMinute { merged.endMinute = current.endMinute }
-                    if current.kind != previous.kind { merged.kind = current.kind }
-                    if current.room != previous.room { merged.room = current.room }
-                    if current.teacher != previous.teacher { merged.teacher = current.teacher }
-                    if current.subgroup != previous.subgroup { merged.subgroup = current.subgroup }
+                    if current.subject != previous?.subject { merged.subject = current.subject }
+                    if current.civilDay != previous?.civilDay { merged.civilDay = current.civilDay }
+                    if current.startMinute != previous?.startMinute { merged.startMinute = current.startMinute }
+                    if current.endMinute != previous?.endMinute { merged.endMinute = current.endMinute }
+                    if current.kind != previous?.kind { merged.kind = current.kind }
+                    if current.room != previous?.room { merged.room = current.room }
+                    if current.teacher != previous?.teacher { merged.teacher = current.teacher }
+                    if current.subgroup != previous?.subgroup { merged.subgroup = current.subgroup }
                     guard merged.isValid else { throw LessonValidationError.invalidTime }
                     if merged != current { result.updated += 1 }
                     document.lessons[index] = merged
@@ -218,7 +244,7 @@ final class CalendarStore {
             for index in document.lessons.indices {
                 guard var origin = document.lessons[index].istuOrigin else { continue }
                 let end = origin.original.startMinute + durationMinutes
-                guard end < 1440 else { throw LessonValidationError.invalidTime }
+                guard end <= 1440 else { throw LessonValidationError.invalidTime }
                 if document.lessons[index].endMinute == origin.original.endMinute {
                     guard end > document.lessons[index].startMinute else { throw LessonValidationError.invalidTime }
                     document.lessons[index].endMinute = end

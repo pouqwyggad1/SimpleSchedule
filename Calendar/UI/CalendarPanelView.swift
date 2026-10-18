@@ -13,6 +13,7 @@ struct CalendarPanelView: View {
     @Bindable var settings: AppSettings
     @Bindable var login: LoginItemManager
     @Bindable var importer: ISTUImportController
+    @Bindable var cloud: CloudController
     @State private var navigationState = PlannerNavigation()
     @State private var today = Date()
     @State private var destination: EditorDestination?
@@ -61,6 +62,7 @@ struct CalendarPanelView: View {
                     .allowsHitTesting(false)
             }
         }
+        .environment(cloud)
         .environment(\.locale, Locale(identifier: "ru_RU"))
         .environment(\.calendar, math.calendar)
         .preferredColorScheme(settings.theme.preferredColorScheme)
@@ -76,7 +78,7 @@ struct CalendarPanelView: View {
             case .groups:
                 GroupManagerView(store: store)
             case .settings:
-                SettingsView(settings: settings, login: login, importer: importer)
+                SettingsView(settings: settings, login: login, importer: importer, cloud: cloud, store: store)
             case .jump:
                 JumpToDateView(date: selectedDate) { selectedDateBinding.wrappedValue = $0 }
             case .widgetDate(let date):
@@ -118,6 +120,12 @@ struct CalendarPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .calendarPanelWillShow)) { _ in refreshToday() }
         .onReceive(NotificationCenter.default.publisher(for: .calendarSystemDayChanged)) { _ in refreshToday() }
+        .onReceive(NotificationCenter.default.publisher(for: .calendarNotificationDayRequested)) { notification in
+            guard let day = notification.userInfo?["day"] as? CivilDay, let date = day.date(in: .current), math.isSupported(date) else { return }
+            selectedDateBinding.wrappedValue = date
+            navigationState.showCalendar(.day)
+            isScheduleMode = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .calendarWidgetDateRequested)) { notification in
             guard let date = notification.userInfo?["date"] as? Date else { return }
             destination = EditorDestination(content: .widgetDate(date))

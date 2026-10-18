@@ -12,7 +12,16 @@ permissions:
 
 jobs:
   client:
-    runs-on: ubuntu-24.04
+    name: client (${{ matrix.project }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            project: desktop-chromium
+          - os: macos-15
+            project: iphone-webkit
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: PWA/client
@@ -27,11 +36,11 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium webkit
-      - run: npm run test:e2e
+      - run: npm run test:e2e -- --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: pwa-browser-failure
+          name: pwa-browser-failure-${{ matrix.project }}
           path: PWA/client/test-results
           retention-days: 7
   server:

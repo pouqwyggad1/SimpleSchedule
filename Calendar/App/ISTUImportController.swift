@@ -11,6 +11,8 @@ final class ISTUImportController {
     @ObservationIgnored private var activeTask: Task<Void, Never>?
     @ObservationIgnored private var appliedDuration: Int
     @ObservationIgnored private let fetch: @MainActor (String) async throws -> Data
+    @ObservationIgnored private var applyingCloudPreferences = false
+    @ObservationIgnored var onSettingsChanged: (() -> Void)?
 
     var institutes: [ISTUOption] { settings.cachedInstitutes }
     var groups: [ISTUOption] { settings.cachedGroups[settings.instituteID ?? ""] ?? [] }
@@ -44,6 +46,7 @@ final class ISTUImportController {
     }
 
     private func applySettings() {
+        guard !applyingCloudPreferences else { return }
         store?.importFilter = ScheduleImportFilter(groupID: settings.groupID, subgroup: settings.subgroup)
         if appliedDuration != settings.durationMinutes {
             do {
@@ -54,6 +57,17 @@ final class ISTUImportController {
                 errorMessage = error.localizedDescription
             }
         }
+        onSettingsChanged?()
+    }
+
+    func applyCloudPreferences(_ preferences: PlannerPreferences) {
+        // Imported end times arrive with the cloud snapshot, so do not recalculate it.
+        applyingCloudPreferences = true
+        defer { applyingCloudPreferences = false }
+        appliedDuration = preferences.durationMinutes
+        settings.instituteID = preferences.instituteId; settings.groupID = preferences.groupId
+        settings.subgroup = preferences.subgroup; settings.durationMinutes = preferences.durationMinutes
+        store?.importFilter = ScheduleImportFilter(groupID: preferences.groupId, subgroup: preferences.subgroup)
     }
 
     func loadInstitutes() async {
