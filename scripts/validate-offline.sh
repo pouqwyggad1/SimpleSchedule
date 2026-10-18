@@ -21,12 +21,15 @@ base = {'com.apple.security.app-sandbox': True}
 group_key = 'com.apple.security.application-groups'
 group_template = '$(TeamIdentifierPrefix)ru.local.GoldenGateCalendar.shared'
 shared = {**base, group_key: [group_template]}
+app_base = {**base, 'com.apple.security.network.client': True, 'com.apple.security.files.user-selected.read-write': True}
+app_shared = {**app_base, group_key: [group_template]}
 fetcher_expected = {**base, 'com.apple.security.network.client': True}
 def read_plist(path):
     return plistlib.loads(path.read_bytes())
-assert read_plist(root/'Calendar/Resources/Calendar-Local.entitlements') == base, 'CLI entitlements must contain only App Sandbox.'
-assert read_plist(root/'Calendar/Resources/Calendar.entitlements') == shared, 'Unexpected signed app entitlements.'
+assert read_plist(root/'Calendar/Resources/Calendar-Local.entitlements') == app_base, 'CLI app must have only sandbox, outgoing cloud HTTPS and user-selected backup files.'
+assert read_plist(root/'Calendar/Resources/Calendar.entitlements') == app_shared, 'Unexpected signed app entitlements.'
 assert read_plist(root/'CalendarWidget/Resources/CalendarWidget.entitlements') == shared, 'App/widget source App Groups must match.'
+assert read_plist(root/'ScheduleFetcherXPC/Checks/FetchCheck.entitlements') == base, 'Diagnostic host must remain without network.'
 assert read_plist(root/'ScheduleFetcherXPC/Resources/ScheduleFetcher.entitlements') == fetcher_expected, 'XPC must have only App Sandbox and outgoing network.'
 assert read_plist(root/'ScheduleFetcherXPC/Resources/Info.plist')['XPCService']['ServiceType'] == 'Application'
 app_source_info = read_plist(root/'Calendar/Resources/Info.plist')
@@ -39,12 +42,18 @@ for directory in ['Calendar', 'CalendarWidget']:
     for path in (root/directory).rglob('*.swift'):
         source = path.read_text()
         forbidden = r'\b(URLSession|URLRequest|NWConnection|NWListener|WKWebView|WebView|CFReadStreamCreateForHTTPRequest|SCPreferences|AXUIElement|CGRequestScreenCaptureAccess)\b|\bimport\s+(Network|WebKit|CFNetwork)\b'
+        if path == root/'Calendar/Cloud/CloudAPI.swift':
+            forbidden = forbidden.replace('URLSession|URLRequest|', '')
         assert not re.search(forbidden, source), f'Forbidden API found: {path}'
 for path in (root/'ScheduleFetcherXPC').rglob('*.swift'):
     source = path.read_text()
     forbidden = r'\b(NWConnection|NWListener|WKWebView|WebView|CFReadStreamCreateForHTTPRequest|SCPreferences|AXUIElement|CGRequestScreenCaptureAccess)\b|\bimport\s+(Network|WebKit|CFNetwork)\b'
     assert not re.search(forbidden, source), f'Forbidden XPC API found: {path}'
-assert not list(root.rglob('Package.resolved')), 'Unexpected resolved external dependencies.'
+cloud_source = (root/'Calendar/Cloud/CloudAPI.swift').read_text()
+assert re.findall(r'https://[^\"\s]+', cloud_source) == ['https://simpleschedule-pwa.onrender.com']
+assert 'completionHandler(nil)' in cloud_source and 'httpCookieStorage = nil' in cloud_source
+assert 'X-SimpleSchedule-Account' in cloud_source and 'CloudCredentialStore' not in cloud_source
+assert not list((root/'Calendar').rglob('Package.resolved')), 'Unexpected resolved external dependencies.'
 # Validate the target graph without requiring full Xcode or running build scripts.
 project = json.loads(subprocess.check_output(['/usr/bin/plutil', '-convert', 'json', '-o', '-', str(root/'Calendar.xcodeproj/project.pbxproj')]))
 objects = project['objects']
@@ -81,18 +90,20 @@ signing_metadata = {
     'application-identifier', 'com.apple.application-identifier',
     'com.apple.developer.team-identifier', 'com.apple.security.get-task-allow',
 }
-def signed_entitlements(bundle, fetcher=False):
+def signed_entitlements(bundle, fetcher=False, main=False):
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
     result = subprocess.run(['/usr/bin/codesign', '-d', '--entitlements', '-', '--xml', str(bundle)], capture_output=True, check=True)
     actual = plistlib.loads(result.stdout)
     assert actual.get('com.apple.security.app-sandbox') is True, f'App Sandbox missing: {bundle}'
-    allowed = set(fetcher_expected) if fetcher else set(base) | {group_key}
+    allowed = set(fetcher_expected) if fetcher else set(app_base if main else base) | {group_key}
     assert not (set(actual) - allowed - signing_metadata), f'Unexpected signed entitlements: {actual}'
-    assert not any('files.' in key for key in actual), 'File access entitlement found.'
+    assert not any('files.' in key and key != 'com.apple.security.files.user-selected.read-write' for key in actual), 'Unexpected file access entitlement.'
     if fetcher:
         assert actual.get('com.apple.security.network.client') is True and group_key not in actual, 'XPC must have outgoing network and no App Group.'
+    elif main:
+        assert actual.get('com.apple.security.network.client') is True and actual.get('com.apple.security.files.user-selected.read-write') is True
     else:
-        assert not any('network.' in key for key in actual), 'Main app and widget must have no network entitlement.'
+        assert not any('network.' in key or 'files.' in key for key in actual), 'Widget must have no network or file access entitlement.'
     return actual
 
 def check_bundle(bundle, role):
@@ -104,10 +115,12 @@ def check_bundle(bundle, role):
     build_versions = subprocess.run(['/usr/bin/xcrun', 'vtool', '-show-build', str(binary)], capture_output=True, text=True, check=True).stdout
     minimum_versions = re.findall(r'\bminos\s+(\S+)', build_versions)
     assert minimum_versions and all(version == '27.0' for version in minimum_versions), 'Mach-O minimum macOS version must be 27.0.'
-    return info, signed_entitlements(bundle, fetcher=role == 'fetcher')
+    return info, signed_entitlements(bundle, fetcher=role == 'fetcher', main=role == 'app')
 
 info, actual = check_bundle(app, 'app')
 assert info['LSUIElement'] is True
+assert info['CFBundleName'] == info['CFBundleDisplayName'] == 'SimpleSchedule'
+assert info['CFBundleIconFile'] == 'AppIcon.icns' and (app/'Contents/Resources/AppIcon.icns').read_bytes()[:4] == b'icns'
 assert info['CFBundleURLTypes'][0]['CFBundleURLSchemes'] == ['goldencalendar']
 xpcs = sorted((app/'Contents/XPCServices').glob('*.xpc'))
 assert len(xpcs) == 1 and xpcs[0].name == 'ScheduleFetcher.xpc', 'App must embed exactly ScheduleFetcher.xpc.'
@@ -144,6 +157,6 @@ else:
         assert widget_info['CFBundleIdentifier'] == info['CFBundleIdentifier']+'.widget'
         assert widget_info['CFBundleVersion'] == info['CFBundleVersion'] and widget_info['CFBundleShortVersionString'] == info['CFBundleShortVersionString'], 'App/widget versions must match.'
     print(f'PASS: подписанная общая группа и embedded WidgetKit extensions: {len(widgets)}.')
-print('PASS: подпись, App Sandbox, macOS 27.0; main/widget без сетевых разрешений, отдельный XPC только network.client, файловых исключений нет.')
+print('PASS: подпись, App Sandbox, macOS 27.0; main — cloud HTTPS и выбранные пользователем JSON, widget без сети/файловых разрешений, XPC только network.client.')
 print('App Intents metadata, регистрация WidgetKit, сетевое выполнение XPC и интерфейс требуют отдельной проверки.')
 PY

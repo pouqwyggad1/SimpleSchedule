@@ -93,11 +93,11 @@ struct ScheduleImportTests {
             _ = try store.importISTUSchedule(page([row("other-source")]), groupID: "B", durationMinutes: 90)
             let changed = try store.importISTUSchedule(page([row("keep", teacher: "Новый руководитель")]), groupID: "A", durationMinutes: 90)
             try expect(changed.removed == 1 && changed.preserved == 1, "Отсутствующее неизмененное занятие удаляется, занятие с ДЗ сохраняется")
-            try expect(!store.lessons.contains { $0.istuOrigin?.sourceID == "remove" }, "Удаляется только пропавший источник покрытого дня")
+            try expect(!store.lessons.contains { $0.istuOrigin?.sourceID == "remove" && !$0.sourceCancelled }, "Удаляется только пропавший источник покрытого дня")
             try expect(store.lessons.contains(manual), "Ручная пара не затрагивается импортом")
             try expect(try source("outside", in: store).civilDay == nextWeek, "Неохваченная неделя того же источника сохраняется")
             try expect(try source("other-source", in: store, group: "B").subject == "Математика", "Другая исходная группа сохраняется")
-            try expect(try source("notes", in: store).homework == withNotes.homework, "ДЗ сохраняется, даже когда пара исчезла на сайте")
+            try expect(store.lessons.first(where: { $0.id == withNotes.id })?.homework == withNotes.homework, "ДЗ сохраняется, даже когда пара исчезла на сайте")
             try expect(try source("keep", in: store).teacher == "Новый руководитель", "Неизмененное локально поле обновляется с сайта")
         }
 
@@ -218,7 +218,7 @@ struct ScheduleImportTests {
             let identities = Dictionary(uniqueKeysWithValues: store.lessons.map { ($0.istuOrigin!.key, $0.id) })
             let result = try store.importISTUSchedule(corrected, groupID: group, durationMinutes: 90)
             try expect(result.removed > 0 && result.added > 0, "Исправленный парсер очищает ранее импортированную неверную ветку той же недели")
-            try expect(store.lessons.count == corrected.lessons.count && Set(store.lessons.map { $0.istuOrigin!.sourceID }) == Set(corrected.lessons.map(\.sourceID)), "После исправления база точно соответствует активным карточкам захваченной страницы без дублей")
+            try expect(store.lessons.filter { !$0.sourceCancelled }.count == corrected.lessons.count && Set(store.lessons.filter { !$0.sourceCancelled }.map { $0.istuOrigin!.sourceID }) == Set(corrected.lessons.map(\.sourceID)), "После исправления база точно соответствует активным карточкам захваченной страницы без дублей")
             let tuesdayLessons = store.lessons(on: tuesdayDate)
             try expect(tuesdayLessons.count == 2 && store.lessons(on: wednesday).isEmpty, "Захваченная группа ИСИб-23-1 после импорта: вторник две пары, среда без пар")
             try expect(tuesdayLessons.map(\.startMinute) == [705, 825] && tuesdayLessons.map(\.endMinute) == [795, 915], "Время пар 11:45–13:15 и 13:45–15:15 сохраняется с длительностью 90 минут")

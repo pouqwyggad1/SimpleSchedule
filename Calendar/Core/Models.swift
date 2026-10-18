@@ -90,6 +90,12 @@ struct PlannerTask: Codable, Identifiable, Equatable, Sendable {
         case id, title, day, date, groupID, note, isCompleted, createdAt
     }
 
+    init(id: UUID = UUID(), title: String, civilDay: CivilDay, groupID: UUID? = nil,
+         note: String = "", isCompleted: Bool = false, createdAt: Date = .now) {
+        self.id = id; self.title = title; self.civilDay = civilDay; self.groupID = groupID
+        self.note = note; self.isCompleted = isCompleted; self.createdAt = createdAt
+    }
+
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(UUID.self, forKey: .id)
@@ -179,4 +185,11 @@ enum DataStoreError: LocalizedError {
         case .writeFailed(let reason): "Не удалось сохранить изменения. \(reason)"
         }
     }
+}
+
+struct NativePlannerSnapshot: Codable, Equatable, Sendable {
+    var tasks: [PlannerTask]
+    var groups: [TaskGroup]
+    var lessons: [UniversityLesson]
+    var deletedISTULessonKeys: [String]
 }

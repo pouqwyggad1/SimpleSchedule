@@ -352,7 +352,7 @@ struct ISTUControllerTests {
             try expect(controller.errorMessage == nil && controller.statusMessage == nil && settings.lastRefresh != nil, "Частично доступный месяц публикует корректные данные без сообщения об ошибке")
             try expect(commits == 1, "Все подтвержденные дни месяца сохраняются одной локальной транзакцией")
             try expect(preserved.allSatisfy { store.lessons.contains($0) }, "Неизвестные дни, недоступная и неверная недели сохраняют прежние пары побезопасно")
-            try expect(!store.lessons.contains { $0.istuOrigin?.sourceID == "explicit-empty" }, "Подтвержденная пустая среда корректной третьей недели очищает только свою старую пару")
+            try expect(!store.lessons.contains { $0.istuOrigin?.sourceID == "explicit-empty" && !$0.sourceCancelled }, "Подтвержденная пустая среда корректной третьей недели очищает только свою старую пару")
             try expect(store.lessons(on: mondays[0]).count == 3 && store.lessons(on: mondays[2]).count == 3, "Корректная третья неделя загружается и сохраняется после отказа второй")
             try expect(controller.availableSubgroups == ["1", "2", "7", "12", "20"], "Кэш объединяет подгруппы только подтвержденных страниц с прежним кэшем")
             try expect(CalendarStore(directory: directory).lessons == store.lessons, "Частично доступный месяц переживает повторное открытие базы")
